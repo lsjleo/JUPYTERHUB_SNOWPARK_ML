@@ -1,0 +1,73 @@
+# FROM debian:stable as jupyterhub-builder
+FROM python:3.8 as jupyterhub-builder
+
+ARG WDIR=/home/jupyter
+
+
+COPY ./jupyter $WDIR
+COPY crt.sh /crt.sh
+COPY ./jupyter/magic/snowpark.py /usr/local/lib/python3.8/site-packages/snowpark.py
+COPY ./jupyter/templates/*.ipynb /usr/local/lib/python3.8/site-packages/jupyterlab_templates/templates/jupyterlab_templates/
+COPY ./credentials_bigquery.json /home/admin/
+COPY ./credentials_resetconsumo.json /home/admin/
+
+RUN mkdir /root/.aws
+COPY config /root/.aws/config
+COPY credentials /root/.aws/credentials
+
+WORKDIR $WDIR
+RUN mkdir -p ${WDIR}/templates
+
+RUN apt-get update \
+    && apt-get install -y libpq-dev jq freetds-dev curl python3 python3-pip gcc g++ make wget apt-utils r-base r-base-dev libcap2-bin \
+    && curl -sL https://dl.yarnpkg.com/debian/pubkey.gpg | gpg --dearmor | tee /usr/share/keyrings/yarnkey.gpg >/dev/null \
+    && echo "deb [signed-by=/usr/share/keyrings/yarnkey.gpg] https://dl.yarnpkg.com/debian stable main" | tee /etc/apt/sources.list.d/yarn.list \
+    && apt-get update && apt-get install -y yarn
+
+
+RUN pip3 install --upgrade pip \
+    && curl -sL https://deb.nodesource.com/setup_18.x | bash \
+    && apt-get install -y nodejs python3-dev git libzmq3-dev libcurl4-openssl-dev libssl-dev \
+    && npm install -g npm \
+    && npm install -g configurable-http-proxy 
+    
+
+RUN apt-get update && \
+    apt-get install -y openssl 
+
+ARG USERNAME=admin
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+ARG USER_PASSWD=admin
+
+RUN echo "RUNNING ADMIN WITH PW ${USER_PASSWD}" 
+
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -ms /bin/bash $USERNAME -p $(perl -e 'print crypt($ARGV[0], "password")' $USER_PASSWD) --system \
+    && apt-get update \
+    && apt-get install -y sudo tar \
+    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME
+
+RUN pip3 install jupyterhub "snowflake-snowpark-python[pandas]" oauthenticator psycopg2-binary
+
+RUN pip3 install openai jupyter_ai diginlineprofiler pandas_profiling \
+    diagrams flask GitPython jupyterlab pandas_profiling jupyterlab_templates \
+    jupyter-resource-usage  ipympl jupyter_scheduler \
+    ipywidgets lux-api dtale dabl accelerate peft bitsandbytes \
+    transformers trl chapyter boto3 
+   
+RUN curl -sL https://julialang-s3.julialang.org/bin/linux/x64/1.9/julia-1.9.1-linux-x86_64.tar.gz --output - | tar xvz \ 
+	&& ln -s $PWD/julia-1.9.1/bin/julia /usr/local/bin/julia \
+	&& julia -e 'using Pkg; Pkg.add("IJulia")' 
+
+RUN R -e "install.packages('IRkernel')" \
+    && R -e "IRkernel::installspec(user = FALSE)" \
+    && jupyter lab build
+
+
+
+EXPOSE 9000
+EXPOSE 9088
+EXPOSE 8866
+EXPOSE 8867

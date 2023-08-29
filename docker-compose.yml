@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  jupyter-services:
+    env_file: .env
+    build:
+      context: .
+      dockerfile: Dockerfile-jupyter
+    working_dir: ${JUPYTER_HOME}
+    entrypoint: sh /crt.sh
+    restart: on-failure
+    volumes:
+      - ./jupyter:${JUPYTER_HOME}
+    ports:
+      - "9000:9000"
+      - "9088:9088"
+    mem_limit: 12g
+  fastapi-services:
+    env_file: .env
+    build:
+      context: .
+      dockerfile: Dockerfile-fastapi
+    restart: on-failure
+    volumes:
+      - ./jupyter:${JUPYTER_HOME}
+    ports:
+      - "9090:9090"
+    mem_limit: 12g
+  

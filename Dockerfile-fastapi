@@ -1,0 +1,43 @@
+# FROM pprezp/pyodbc-msodbcsql18-debian:latest
+FROM python:3.8 as fastapi-builder
+WORKDIR /app
+ADD requirements_fastapi.txt .
+COPY fastapi/main.py /app/main.py
+COPY fastapi/__init__.py /app/__init__.py
+
+
+RUN mkdir /root/.aws
+RUN mkdir -p /home/admin/notebooks
+COPY config /root/.aws/config
+COPY credentials /root/.aws/credentials
+COPY ./jupyter/magic/snowpark.py /usr/local/lib/python3.8/site-packages/snowpark.py
+COPY .git-credentials /root/
+COPY .gitconfig /root/
+
+
+RUN chmod a+x main.py 
+
+# RUN apt-get install freetds-dev freetds-bin vim cron -y 
+
+RUN pip install -r requirements_fastapi.txt
+RUN pip install --upgrade pip ipython ipykernel
+RUN ipython kernel install --name "python3" --user
+RUN pip3 install "snowflake-snowpark-python[pandas]" "gitpython"
+
+ARG USERNAME=admin
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+ARG USER_PASSWD=admin
+
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -ms /bin/bash $USERNAME -p $(perl -e 'print crypt($ARGV[0], "password")' $USER_PASSWD) --system \
+    && apt-get update \
+    && apt-get install -y sudo tar \
+    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME
+
+ENV PYTHONPATH=$PYTHONPATH:/app
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9090", "--reload"]
+
+
+EXPOSE 9090
